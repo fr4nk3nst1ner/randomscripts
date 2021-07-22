@@ -2,6 +2,8 @@
 
 #this is a tamper script that should be used to attempt to bypass refresh tokens.
 #it works by auto updating the refresh token as they change. Should be good for JWT, ASPX 
+#macos: /usr/local/Cellar/sqlmap/1.5.5/libexec/tamper/<file>
+#kali: /usr/share/sqlmap/tamper/<file>
 
 
 import requests
