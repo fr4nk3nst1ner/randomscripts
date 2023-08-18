@@ -7,7 +7,15 @@ that has read access to files, this is the tool for you. Simply
 run the tool, pass the token, and it'll dump all the files from
 all the channels it has access to / is a member of. 
 
-Usage: 
+Check if token is valid: 
+
+https://api.slack.com/methods/auth.test/test
+
+Check if token has permissions to the files.list api:
+
+curl -i 'https://slack.com/api/files.list' -H 'Authorization: Bearer xoxb-<tokengoeshere>'
+
+Tool usage: 
 
 python3 dumpslackfiles.py <token>
 
