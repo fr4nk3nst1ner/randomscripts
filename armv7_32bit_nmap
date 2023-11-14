@@ -1,0 +1,57 @@
+# can be used to build or execute on disk 
+
+# Step 1: clone the directory locally 
+
+# Step 2: Build the Docker image
+# `docker build -t nmap-builder . `
+
+# Step 3: Run the Docker container with a volume mount
+# `docker run -v /path/on/host:/output nmap-builder`
+
+FROM arm32v7/ubuntu:20.04
+
+ENV DEBIAN_FRONTEND noninteractive
+
+RUN apt-get update && \
+    apt-get install -y \
+    build-essential \
+    git \
+    libssl-dev \
+    libncurses-dev \
+    libpcap-dev \
+    libdnet-dev \
+    liblua5.3-dev \
+    zlib1g-dev \
+    libpcre3-dev \
+    liblinear-dev \
+    libssh2-1-dev \
+    libz-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV TZ=UTC
+
+RUN git clone https://github.com/nmap/nmap.git /opt/nmap
+
+WORKDIR /opt/nmap
+
+RUN ./configure && make && make install
+
+RUN apt-get remove -y \
+    build-essential \
+    git \
+    libssl-dev \
+    libncurses-dev \
+    libpcap-dev \
+    libdnet-dev \
+    liblua5.3-dev \
+    zlib1g-dev \
+    libpcre3-dev \
+    liblinear-dev \
+    libssh2-1-dev \
+    libz-dev \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV DEBIAN_FRONTEND teletype
+
+ENTRYPOINT ["nmap"]
