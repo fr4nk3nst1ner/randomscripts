@@ -3,10 +3,10 @@
 # Step 1: clone the directory locally 
 
 # Step 2: Build the Docker image
-# `docker build -t nmap-builder . `
+# `docker build -t nmap-armv7 . `
 
 # Step 3: Run the Docker container with a volume mount
-# `docker run -v /path/on/host:/output nmap-builder`
+# `docker run -it -v /opt/:/output --entrypoint /bin/bash nmap-armv7`
 
 FROM arm32v7/ubuntu:20.04
 
