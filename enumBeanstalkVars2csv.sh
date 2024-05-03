@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Set AWS CLI profile and region
-AWS_PROFILE="growth"
+AWS_PROFILE="profile"
 AWS_REGION="us-west-2"
 NAMESPACE="aws:elasticbeanstalk:application:environment"
 
