@@ -22,3 +22,27 @@ qm set 8200 --boot c --bootdisk scsi0
 
 # enable serial console 
 qm set 8200 --serial0 socket --vga serial0
+
+
+
+# Steps for doing this with Kali 
+
+
+# step 1: download iso 
+wget https://cdimage.kali.org/kali-2024.1/kali-linux-2024.1-qemu-amd64.7z
+7z e kali-linux-2024.1-qemu-amd64.7z
+
+# step 2: scp qcow file to proxmox 
+scp kali-linux-2024.1-qemu-amd64.qcow2 proxmox:/var/lib/vz/template/iso/
+
+# step 3: import the image 
+ssh proxmox
+
+qm create 8400 --memory 8192 --name kali --net0 virtio,bridge=vmbr0
+qm importdisk 8400 /var/lib/vz/template/iso/kali-linux-2024.1-qemu-amd64.qcow2 truenas
+qm set 8400 --scsihw virtio-scsi-pci --scsi0 truenas:8400/vm-8400-disk-0.raw
+qm set 8400 --ide2 truenas:cloudinit
+qm set 8400 --boot c --bootdisk scsi0
+qm set 8400 --serial0 socket --vga serial0
+
+
