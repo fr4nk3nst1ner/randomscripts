@@ -53,6 +53,13 @@ Bus 001 Device 024: ID 2cf0:5246 Nuand LLC bladeRF
 
 - [reference](https://www.nuand.com/forums/viewtopic.php?p=8892)
 
+- At the time of this writing, I've gotten the following fw image and fpga to work:
+
+```
+Firmware 2018-06-28 - v2.2.0
+FPGA 2018-09-12 - v0.8.0
+```
+
 ## load the fpga
 
 `bladeRF-cli -l hostedxA4-latest.rbf`
