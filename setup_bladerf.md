@@ -53,7 +53,7 @@ Bus 001 Device 024: ID 2cf0:5246 Nuand LLC bladeRF
 
 - [reference](https://www.nuand.com/forums/viewtopic.php?p=8892)
 
-- At the time of this writing, I've gotten the following fw image and fpga to work:
+- At the time of this writing, I've gotten both the latest fw image and fpga and the following to work:
 
 ```
 Firmware 2018-06-28 - v2.2.0
