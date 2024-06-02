@@ -78,9 +78,10 @@ sudo ldconfig
 
 `gnuradio-companion gr-bladeRF/apps/fm_receiver.grc`
 
-# Before we finish, you will need to set the FPGA Image path for the bladeRF source and sink.
-# This ensures it loads the FPGA image onto the SDR if you ever power the device down as it will not store the image.
-# https://miro.medium.com/v2/resize:fit:1196/format:webp/1*qDry9Ey48BROu-h0qYbYUQ.png
+- Before we finish, you will need to set the FPGA Image path for the bladeRF source and sink.
+- This ensures it loads the FPGA image onto the SDR if you ever power the device down as it will not store the image.
+
+![Alt Text](https://miro.medium.com/v2/resize:fit:1196/format:webp/1*qDry9Ey48BROu-h0qYbYUQ.png)
 
 
 # Miscellaneous Commands
