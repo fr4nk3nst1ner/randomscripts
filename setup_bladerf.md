@@ -39,8 +39,9 @@ sudo ldconfig
 
 `bladeRF-cli -f bladeRF_fw_latest.img`
 
-### Note on flashing the wrong firmware
+### Troubleshooting and note on flashing the wrong firmware
 
+- ENSURE YOU'RE USING THE CORRECT USB CABLE!
 - If you flash the wrong (v1) firmware, you'll need to force the FX3 into bootloader mode and update the firmware using the [recovery procedure](https://github.com/Nuand/bladeRF/wiki/Upgrading-bladeRF-FX3-Firmware#Upgrading_using_the_FX3_bootloader_Recovery_Method)
 - [Here](https://www.nuand.com/forums/viewtopic.php?p=8892) is Nuand's article on this
 
