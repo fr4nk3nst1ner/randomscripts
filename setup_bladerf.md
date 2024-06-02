@@ -39,6 +39,19 @@ sudo ldconfig
 
 `bladeRF-cli -f bladeRF_fw_latest.img`
 
+### Note on flashing the wrong firmware
+
+- If you flash the wrong (v1) firmware, you'll need to force the FX3 into bootloader mode and update the firmware using the [recovery procedure](https://github.com/Nuand/bladeRF/wiki/Upgrading-bladeRF-FX3-Firmware#Upgrading_using_the_FX3_bootloader_Recovery_Method)
+- [Here](https://www.nuand.com/forums/viewtopic.php?p=8892) is Nuand's article on this
+
+> If a bladeRF2‑micro is connected, and 2cf0:5246 shows up, then old firmware was flashed and it needs to be updated
+```
+lsusb -d 2cf0:
+Bus 001 Device 024: ID 2cf0:5246 Nuand LLC bladeRF
+```
+
+- [reference](https://www.nuand.com/forums/viewtopic.php?p=8892)
+
 ## load the fpga
 
 `bladeRF-cli -l hostedxA4-latest.rbf`
@@ -82,7 +95,6 @@ sudo ldconfig
 - This ensures it loads the FPGA image onto the SDR if you ever power the device down as it will not store the image.
 
 ![Alt Text](https://miro.medium.com/v2/resize:fit:1196/format:webp/1*qDry9Ey48BROu-h0qYbYUQ.png)
-
 
 # Miscellaneous Commands
 
