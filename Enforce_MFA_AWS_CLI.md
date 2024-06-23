@@ -78,6 +78,11 @@ output = json
 [profile PROFILE]
 region = us-east-1
 output = json
+
+[profile PROFILEMFA]
+region = us-east-1
+output = json
+cli_pager = 
 ```
 
 #### `~/.aws/credentials`
@@ -121,9 +126,9 @@ function aws-login {
     echo "export AWS_TOKEN_EXPIRATION=$(echo $session | jq -r '.Expiration')" >> $HOME/.aws/sts
 
     # Set the AWS CLI profile to use the temporary credentials
-    aws configure set aws_access_key_id "$(echo $session | jq -r '.AccessKeyId')" 
-    aws configure set aws_secret_access_key "$(echo $session | jq -r '.SecretAccessKey')" 
-    aws configure set aws_session_token "$(echo $session | jq -r '.SessionToken')" 
+    aws configure set aws_access_key_id "$(echo $session | jq -r '.AccessKeyId')" --profile PROFILEMFA
+    aws configure set aws_secret_access_key "$(echo $session | jq -r '.SecretAccessKey')"  --profile PROFILEMFA
+    aws configure set aws_session_token "$(echo $session | jq -r '.SessionToken')" --profile PROFILEMFA
 
     source $HOME/.aws/sts
 
