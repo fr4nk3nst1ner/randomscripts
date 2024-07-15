@@ -6,6 +6,10 @@
 # 2. Embeds the UBIFS into a UBI image 
 # 3. Mounts the image 
 
+# purpose of each:
+# UBIFS: Used for creating filesystems directly on MTD devices.
+# UBI: Used for managing volumes on top of MTD devices, providing a more flexible and abstracted approach to handling flash memory.
+
 # install requirements 
 sudo apt install mtd-utils
 
