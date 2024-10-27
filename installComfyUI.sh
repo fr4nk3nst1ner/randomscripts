@@ -1,46 +1,56 @@
 #!/bin/bash
 
-# clone repo
+# Clone necessary repos
 git clone https://github.com/comfyanonymous/ComfyUI.git
 cd ComfyUI
 
-# create conda env
+# Create and activate Conda environment
+conda create -n comfyui-env python=3.10 -y
 conda activate comfyui-env
-conda create -n comfyui-env python=3.10
 
-# clone repo
-git clone https://github.com/comfyanonymous/ComfyUI.git
+# Clone custom nodes
+declare -A custom_nodes=(
+  ["ComfyUI-VideoHelperSuite"]="Kosinkadink/ComfyUI-VideoHelperSuite"
+  ["ComfyUI_essentials"]="cubiq/ComfyUI_essentials"
+  ["ComfyUI-KJNodes"]="kijai/ComfyUI-KJNodes"
+  ["ComfyUI-LivePortraitKJ"]="kijai/ComfyUI-LivePortraitKJ"
+  ["ComfyUI-Manager"]="ltdrdata/ComfyUI-Manager"
+)
 
-# clone custom nodes
-git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git custom_nodes/ComfyUI-VideoHelperSuite
-git clone https://github.com/cubiq/ComfyUI_essentials.git custom_nodes/ComfyUI_essentials.git
-git clone https://github.com/kijai/ComfyUI-KJNodes.git custom_nodes/ComfyUI-KJNodes
-git clone https://github.com/kijai/ComfyUI-LivePortraitKJ.git custom_nodes/ComfyUI-LivePortraitKJ
-git clone https://github.com/ltdrdata/ComfyUI-Manager.git custom_nodes/ComfyUI-Manager
+for node in "${!custom_nodes[@]}"; do
+  git clone "https://github.com/${custom_nodes[$node]}.git" "custom_nodes/$node"
+done
 
+# Pull required models using Hugging Face
+model_dir="/home/jstines/ComfyUI/models/liveportrait/"
+model_files=(
+  "appearance_feature_extractor.safetensors"
+  "landmark.onnx"
+  "landmark_model.pth"
+  "motion_extractor.safetensors"
+  "spade_generator.safetensors"
+  "stitching_retargeting_module.safetensors"
+  "warping_module.safetensors"
+)
 
-# pull required models
-huggingface-cli download Kijai/LivePortrait_safetensors appearance_feature_extractor.safetensors --local-dir /home/jstines/ComfyUI/models/liveportrait/
-huggingface-cli download Kijai/LivePortrait_safetensors landmark.onnx  --local-dir /home/jstines/ComfyUI/models/liveportrait/
-huggingface-cli download Kijai/LivePortrait_safetensors landmark_model.pth --local-dir /home/jstines/ComfyUI/models/liveportrait/
-huggingface-cli download Kijai/LivePortrait_safetensors motion_extractor.safetensors --local-dir /home/jstines/ComfyUI/models/liveportrait/
-huggingface-cli download Kijai/LivePortrait_safetensors spade_generator.safetensors --local-dir /home/jstines/ComfyUI/models/liveportrait/
-huggingface-cli download Kijai/LivePortrait_safetensors stitching_retargeting_module.safetensors --local-dir /home/jstines/ComfyUI/models/liveportrait/
-huggingface-cli download Kijai/LivePortrait_safetensors warping_module.safetensors --local-dir /home/jstines/ComfyUI/models/liveportrait/
+for model in "${model_files[@]}"; do
+  huggingface-cli download Kijai/LivePortrait_safetensors "$model" --local-dir "$model_dir"
+done
 
-# install required pip modules
+# Install required dependencies
 pip install -r requirements.txt
 pip install -r custom_nodes/ComfyUI-LivePortraitKJ/requirements.txt
 pip install imageio_ffmpeg rich insightface mediapipe onnxruntime opencv-python-headless pykalman opencv-python numba
 
-# Settings tweaks for image to video
-
-# 1. use LivePortrait Load FaceAlignmentCropper node with blazeback_back_camera and torch_cuda
-# 2. set face detector dtype to fp32 in LivePortrait Load FaceAlignmentCropper node
-# 3. set frame rate to 32 in Video Combine node
-# 4. increase frame_load_cap value to a higher number  (e.g., 270 for 9 seconds) to allow longer videos
-# 5. to prevent memory crashes, set force_size in Load Video Upload node to 512 for both custom_height and custom_width
-
+# Configuration for image-to-video processing
 export myip=127.0.0.1
 
+# Settings tweaks
+# 1. Use LivePortrait Load FaceAlignmentCropper node with `blazeback_back_camera` and `torch_cuda`.
+# 2. Set face detector dtype to `fp32` in LivePortrait Load FaceAlignmentCropper node.
+# 3. Set frame rate to 32 in Video Combine node.
+# 4. Increase `frame_load_cap` to a higher value (e.g., 270 for 9 seconds).
+# 5. To prevent memory crashes, set force_size in Load Video Upload node to 512 for both `custom_height` and `custom_width`.
+
+# Run ComfyUI
 python main.py --listen $myip
