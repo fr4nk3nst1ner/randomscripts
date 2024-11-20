@@ -153,7 +153,7 @@ def run_trufflehog(repos, username, verify, only_verified):
         print(f"Running trufflehog on {repo_name} for user {username}...")
 
         # Build the trufflehog command with options based on verify and only_verified flags
-        trufflehog_cmd = ["trufflehog", "git", repo_url]
+        trufflehog_cmd = ["trufflehog", "github", repo_url, "--issue-comments", "--pr-comments"]
 
         if only_verified:
             trufflehog_cmd.append("--only-verified")
