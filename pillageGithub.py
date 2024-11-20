@@ -56,7 +56,6 @@ def get_user_public_repos(username, token=None, max_repo_size_kb=None, no_fork=F
     print(f"Found {len(repos)} public repositories {size_info} for user {username}.")
     return repos
 
-
 def get_public_repositories(org_name, token):
     """Retrieve public repositories for the specified organization."""
     headers = {"Authorization": f"token {token}"} if token else {}
@@ -96,18 +95,36 @@ def docker_login(registry, username, token):
         print(f"Failed to log in to {registry}: {e}")
         raise
 
-def docker_pull_image(image_name):
-    """Pull a Docker image using the Docker CLI."""
+def get_available_tags(image_name, token=None):
+    """Fetch available tags for a Docker image."""
+    try:
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        repo_name = "/".join(image_name.split("/")[-2:])
+        url = f"https://ghcr.io/v2/{repo_name}/tags/list"
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return response.json().get("tags", [])
+    except Exception as e:
+        print(f"Failed to fetch tags for {image_name}: {e}")
+        return []
+
+def docker_pull_image(image_name, token=None):
+    """Pull a Docker image using the Docker CLI, falling back to specific tags."""
     try:
         print(f"Pulling image: {image_name}")
-        subprocess.run(
-            ["docker", "pull", image_name],
-            check=True
-        )
+        subprocess.run(["docker", "pull", image_name], check=True)
         print(f"Image {image_name} pulled successfully!")
-    except subprocess.CalledProcessError as e:
-        print(f"Failed to pull image {image_name}: {e}")
-        raise
+    except subprocess.CalledProcessError:
+        print(f"Failed to pull {image_name}. Attempting to fetch available tags...")
+        tags = get_available_tags(image_name, token)
+        if not tags:
+            raise ValueError(f"No tags found for {image_name}")
+        print(f"Available tags for {image_name}: {tags}")
+        # Try pulling the first available tag
+        tagged_image = f"{image_name.rsplit(':', 1)[0]}:{tags[0]}"
+        print(f"Pulling image with tag {tags[0]}: {tagged_image}")
+        subprocess.run(["docker", "pull", tagged_image], check=True)
+        print(f"Image {tagged_image} pulled successfully!")
 
 def scan_docker_image(image_name, verify=False):
     """Scan a Docker image using trufflehog."""
@@ -205,19 +222,20 @@ def ghcr_main(org_name, token, user=None, repo=None, user_list_file=None, verify
     if token:
         docker_login("ghcr.io", username, token)
 
-    # Evaluate specific repo if provided
-    if repo:
-        print(f"Processing specific repo: {repo}")
-        repo_parts = repo.rstrip("/").split("/")
-        if len(repo_parts) < 2:
-            print(f"Invalid repository URL: {repo}")
-            return
-        repo_name = repo_parts[-1]
-        user_name = repo_parts[-2]
-
-        # Construct the Docker image name
-        image_name = f"ghcr.io/{user_name}/{repo_name}:latest"
-        docker_pull_image(image_name)
+    def process_image(image_name):
+        """Handle pulling, scanning, extracting, and deleting a Docker image."""
+        try:
+            docker_pull_image(image_name, token)
+        except Exception as e:
+            print(f"Error pulling image {image_name}: {e}. Attempting to fetch available tags...")
+            tags = get_available_tags(image_name, token)
+            if not tags:
+                print(f"No available tags found for {image_name}. Skipping...")
+                return
+            print(f"Available tags: {tags}. Using tag: {tags[0]}")
+            tagged_image = f"{image_name.rsplit(':', 1)[0]}:{tags[0]}"
+            docker_pull_image(tagged_image, token)
+            image_name = tagged_image  # Update image_name to use the successful tag
 
         # Extract layers if requested
         if extract_layers:
@@ -230,6 +248,18 @@ def ghcr_main(org_name, token, user=None, repo=None, user_list_file=None, verify
         # Delete the image unless retain_image is passed
         if not retain_image:
             delete_docker_image(image_name)
+
+    # Evaluate a specific repo if provided
+    if repo:
+        print(f"Processing specific repo: {repo}")
+        repo_parts = repo.rstrip("/").split("/")
+        if len(repo_parts) < 2:
+            print(f"Invalid repository URL: {repo}")
+            return
+        repo_name = repo_parts[-1]
+        user_name = repo_parts[-2]
+        image_name = f"ghcr.io/{user_name}/{repo_name}:latest"
+        process_image(image_name)
         return
 
     # Evaluate repositories for a specific user
@@ -239,10 +269,7 @@ def ghcr_main(org_name, token, user=None, repo=None, user_list_file=None, verify
         for repo_url in repos:
             repo_name = repo_url.split("/")[-1].replace(".git", "")
             image_name = f"ghcr.io/{user}/{repo_name}:latest"
-            docker_pull_image(image_name)
-            scan_docker_image(image_name, verify)
-            if not retain_image:
-                delete_docker_image(image_name)
+            process_image(image_name)
         return
 
     # Use provided org_name or fetch user list if specified
@@ -258,10 +285,7 @@ def ghcr_main(org_name, token, user=None, repo=None, user_list_file=None, verify
         public_repos = get_public_repositories(user, token)
         for repo_name in public_repos:
             image_name = f"ghcr.io/{user}/{repo_name}:latest"
-            docker_pull_image(image_name)
-            scan_docker_image(image_name, verify)
-            if not retain_image:
-                delete_docker_image(image_name)
+            process_image(image_name)
 
 def github_main(org_name, token, max_repo_size_mb, user=None, repo=None, user_list_file=None, get_users_file=None, clone=False, trufflehog=False, verify=False, only_verified=False, no_fork=False, time_limit=None):
     """Main function for the 'github' command."""
