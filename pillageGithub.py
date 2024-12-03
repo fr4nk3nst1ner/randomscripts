@@ -8,6 +8,42 @@ import tarfile
 
 # GitHub API Base URL
 BASE_URL = "https://api.github.com"
+POSTMAN_API_BASE_URL = "https://api.getpostman.com"
+
+def get_org_members(org_name, token, output_file=None):
+    """Retrieve all members of a GitHub organization."""
+    headers = {"Authorization": f"token {token}"} if token else {}
+    url = f"{BASE_URL}/orgs/{org_name}/members"
+    params = {"per_page": 100}
+    members = []
+
+    try:
+        while True:
+            response = requests.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+            if not data:
+                break
+
+            members.extend([member['login'] for member in data])
+            # Check for the 'next' link in the response headers
+            if 'next' not in response.links:
+                break
+
+            # Update the URL to the next page
+            url = response.links['next']['url']
+
+        if output_file:
+            with open(output_file, "w") as f:
+                f.write("\n".join(members))
+
+        return members
+
+    except Exception as e:
+        print(f"Failed to retrieve members for organization {org_name}: {e}")
+        return []
+
 
 def get_user_public_repos(username, token=None, max_repo_size_kb=None, no_fork=False, time_limit=None):
     """Fetches all public repositories for a given GitHub user, filtering out those larger than max_repo_size_kb, forked, or older than time_limit if specified."""
@@ -56,16 +92,31 @@ def get_user_public_repos(username, token=None, max_repo_size_kb=None, no_fork=F
     print(f"Found {len(repos)} public repositories {size_info} for user {username}.")
     return repos
 
-def get_public_repositories(org_name, token):
+def get_public_repositories(org_name, token=None):
     """Retrieve public repositories for the specified organization."""
     headers = {"Authorization": f"token {token}"} if token else {}
     url = f"{BASE_URL}/orgs/{org_name}/repos"
-    params = {"type": "public", "per_page": 100}
+    params = {"type": "all", "per_page": 100}  # Fetch all repos (public and private if authenticated)
+    repositories = []
 
-    response = requests.get(url, headers=headers, params=params)
-    response.raise_for_status()
+    while url:
+        response = requests.get(url, headers=headers, params=params)
+        if response.status_code != 200:
+            print(f"Failed to fetch repositories for organization {org_name}: {response.json().get('message', 'Unknown error')}")
+            break
 
-    return [repo['name'] for repo in response.json()]
+        data = response.json()
+        if not data:
+            break
+
+        repositories.extend([repo['name'] for repo in data])
+
+        # Handle pagination
+        url = response.links.get('next', {}).get('url')
+
+    print(f"Found {len(repositories)} repositories for organization {org_name}.")
+    return repositories
+
 
 def get_user_repositories(username, token):
     """Retrieve all repositories for a specific user."""
@@ -146,21 +197,30 @@ def scan_docker_image(image_name, verify=False):
         print(f"Failed to scan image {image_name}: {e}")
         raise
 
-def run_trufflehog(repos, username, verify, only_verified):
+def run_trufflehog(repos, username, verify, only_verified, token=None):
     """Runs trufflehog on all repositories in the list, with options for verification."""
     for repo_url in repos:
         repo_name = repo_url.split('/')[-1].replace('.git', '')
         print(f"Running trufflehog on {repo_name} for user {username}...")
 
-        # Build the trufflehog command with options based on verify and only_verified flags
-        trufflehog_cmd = ["trufflehog", "github", repo_url, "--issue-comments", "--pr-comments"]
-
+        # Build the trufflehog command
+        trufflehog_cmd = ["trufflehog", "github", "--repo", repo_url]
         if only_verified:
             trufflehog_cmd.append("--only-verified")
         elif not verify:
             trufflehog_cmd.append("--no-verification")
 
-        subprocess.run(trufflehog_cmd)
+        # Add the token if provided
+        if token:
+            trufflehog_cmd.extend(["--token", token])
+
+        print(f"Trufflehog command: {' '.join(trufflehog_cmd)}")  # Debug output
+
+        try:
+            subprocess.run(trufflehog_cmd, check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"Error running trufflehog on {repo_url}: {e}")
+
 
 def delete_docker_image(image_name):
     """Delete a Docker image using the Docker CLI."""
@@ -210,6 +270,59 @@ def extract_docker_image_layers(image_name, output_directory):
     except Exception as e:
         print(f"Failed to extract layers for image {image_name}: {e}")
         raise
+
+
+def get_postman_workspaces(token, search_query=None):
+    """Fetch workspaces from Postman, optionally filtered by a search query."""
+    headers = {"X-Api-Key": token}
+    url = f"{POSTMAN_API_BASE_URL}/workspaces"
+
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        raise Exception(f"Error fetching Postman workspaces: {response.status_code}, {response.text}")
+
+    workspaces = response.json().get("workspaces", [])
+    if search_query:
+        workspaces = [ws for ws in workspaces if search_query.lower() in ws["name"].lower()]
+
+    return workspaces
+
+def run_trufflehog_postman(token, workspaces, verify):
+    """Run TruffleHog on all Postman workspaces."""
+    for workspace in workspaces:
+        workspace_id = workspace["id"]
+        workspace_name = workspace["name"]
+        print(f"Running TruffleHog on Postman workspace: {workspace_name} (ID: {workspace_id})")
+
+        # Build the trufflehog command
+        trufflehog_cmd = [
+            "trufflehog", "postman",
+            "--token", token,
+            "--workspace", workspace_id
+        ]
+
+        if not verify:
+            trufflehog_cmd.append("--no-verification")
+
+        try:
+            subprocess.run(trufflehog_cmd, check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to scan workspace {workspace_name}: {e}")
+
+    print("TruffleHog scanning completed for all workspaces.")
+
+def postman_main(token, search_query, verify):
+    """Main function for the 'postman' command."""
+    print("Fetching Postman workspaces...")
+    workspaces = get_postman_workspaces(token, search_query)
+
+    if not workspaces:
+        print("No Postman workspaces found.")
+        return
+
+    print(f"Found {len(workspaces)} workspaces.")
+    run_trufflehog_postman(token, workspaces, verify)
+
 
 def ghcr_main(org_name, token, user=None, repo=None, user_list_file=None, verify=False, retain_image=False, extract_layers=None):
     """Main function for the 'ghcr' command."""
@@ -287,7 +400,7 @@ def ghcr_main(org_name, token, user=None, repo=None, user_list_file=None, verify
             image_name = f"ghcr.io/{user}/{repo_name}:latest"
             process_image(image_name)
 
-def github_main(org_name, token, max_repo_size_mb, user=None, repo=None, user_list_file=None, get_users_file=None, clone=False, trufflehog=False, verify=False, only_verified=False, no_fork=False, time_limit=None):
+def github_main(org_name, token, max_repo_size_mb, user=None, repo=None, user_list_file=None, get_users_file=None, clone=False, trufflehog=False, verify=False, only_verified=False, no_fork=False, time_limit=None, scan_org=None):
     """Main function for the 'github' command."""
     max_repo_size_kb = max_repo_size_mb * 1000 if max_repo_size_mb is not None else None  # Convert MB to KB or leave None
 
@@ -303,6 +416,20 @@ def github_main(org_name, token, max_repo_size_mb, user=None, repo=None, user_li
         repos = get_user_repositories(user, token)
         run_trufflehog(repos, user, verify, only_verified)
         return
+
+    # Process organization repositories if --scan-org is specified
+    if scan_org:
+        print(f"Scanning all repositories for organization: {scan_org}")
+        repos = get_public_repositories(scan_org, token)
+        if not repos:
+            print(f"No repositories found for organization: {scan_org}")
+            return
+
+        repo_urls = [f"https://github.com/{scan_org}/{repo}.git" for repo in repos]
+        print(f"Repositories to scan: {repo_urls}")
+        run_trufflehog(repo_urls, scan_org, verify, only_verified, token)  # Pass token here
+        return
+
 
     # Process user list or organization
     if user_list_file:
@@ -326,8 +453,11 @@ def github_main(org_name, token, max_repo_size_mb, user=None, repo=None, user_li
             run_trufflehog(repos, username, verify, only_verified)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="GitHub repository and container scanning utility.")
-    parser.add_argument("command", choices=["github", "ghcr"], help="Command to run ('github' or 'ghcr')")
+    parser = argparse.ArgumentParser(description="GitHub repository, container, and postman scanning utility.")
+    parser.add_argument(
+        "command", choices=["github", "ghcr", "postman"],
+        help="Command to run ('github', 'ghcr', or 'postman')"
+    )
     parser.add_argument("--github-org", help="Name of the GitHub organization (required if --user-list is not provided)")
     parser.add_argument("--max-repo-size", type=int, help="Maximum repository size in MB (no limit if omitted)")
     parser.add_argument("--token", help="GitHub Personal Access Token (optional for public repositories)")
@@ -343,14 +473,21 @@ if __name__ == "__main__":
     parser.add_argument("--time-limit", type=int, help="Limit repositories to those updated within the last N years")
     parser.add_argument("--retain-image", action="store_true", help="Retain the Docker image after scanning")
     parser.add_argument("--extract-layers", help="Directory to extract Docker image layers")
+    parser.add_argument("--scan-org", help="Scan all repositories for the specified GitHub organization")
+    parser.add_argument("--search", help="Search query for Postman workspaces")
 
     args = parser.parse_args()
 
     if args.command == "github":
         if not args.clone and not args.trufflehog:
             parser.error("Either --clone or --trufflehog must be specified for 'github' command.")
-        github_main(args.github_org, args.token, args.max_repo_size, args.user, args.repo, args.user_list, args.get_users, args.clone, args.trufflehog, args.verify, args.only_verified, args.no_fork, args.time_limit)
+        github_main(args.github_org, args.token, args.max_repo_size, args.user, args.repo, args.user_list, args.get_users, args.clone, args.trufflehog, args.verify, args.only_verified, args.no_fork, args.time_limit, args.scan_org)
     if args.command == "ghcr":
         if not (args.github_org or args.user_list or args.user or args.repo):
             parser.error("Either --github-org, --user, or --user-list must be specified for 'ghcr' command.")
         ghcr_main(args.github_org, args.token, args.user, args.repo, args.user_list, args.verify, args.retain_image, args.extract_layers)
+
+    if args.command == "postman":
+        if not args.token:
+            parser.error("--token is required for 'postman'")
+        postman_main(args.token, args.search, args.verify)
