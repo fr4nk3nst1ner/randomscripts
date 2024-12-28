@@ -149,12 +149,11 @@ def docker_login(registry, username, token):
 def get_available_tags(image_name, token=None):
     """Fetch available tags for a Docker image."""
     try:
-        headers = {"Authorization": f"Bearer {token}"} if token else {}
-        repo_name = "/".join(image_name.split("/")[-2:])
-        url = f"https://ghcr.io/v2/{repo_name}/tags/list"
-        response = requests.get(url, headers=headers)
+        org_name, repo_name = image_name.split('/')[:2]
+        url = f"https://hub.docker.com/v2/repositories/{org_name}/{repo_name}/tags/"
+        response = requests.get(url, verify=False)  # Skip SSL verification for Docker Hub
         response.raise_for_status()
-        return response.json().get("tags", [])
+        return [tag["name"] for tag in response.json().get("results", [])]
     except Exception as e:
         print(f"Failed to fetch tags for {image_name}: {e}")
         return []
@@ -177,24 +176,24 @@ def docker_pull_image(image_name, token=None):
         subprocess.run(["docker", "pull", tagged_image], check=True)
         print(f"Image {tagged_image} pulled successfully!")
 
-def scan_docker_image(image_name, verify=False):
-    """Scan a Docker image using trufflehog."""
+def scan_docker_image(image_name, verify=False, use_dockle=False):
+    """Scan a Docker image using TruffleHog or Dockle based on the provided option."""
     try:
-        print(f"Scanning image: {image_name}")
-        command = ["trufflehog", "docker", "--image", image_name]
-
-        # Append the correct flag based on `verify`
-        if verify:
-            print("Warning: '--verify' flag not supported by trufflehog.")
-            # Remove this append if `--verify` is truly unsupported.
-            command.append("--verify")
+        if use_dockle:
+            print(f"Scanning image with Dockle: {image_name}")
+            command = ["dockle", image_name]
         else:
-            command.append("--no-verification")
+            print(f"Scanning image with TruffleHog: {image_name}")
+            command = ["trufflehog", "docker", "--image", image_name]
+
+            if verify:
+                command.append("--verify")
+            else:
+                command.append("--no-verification")
 
         subprocess.run(command, check=True)
-        print(f"Scan of {image_name} completed successfully!")
     except subprocess.CalledProcessError as e:
-        print(f"Failed to scan image {image_name}: {e}")
+        print(f"Failed to scan image {image_name} using {'Dockle' if use_dockle else 'TruffleHog'}: {e}")
         raise
 
 def run_trufflehog(repos, username, verify, only_verified, token=None):
@@ -221,19 +220,18 @@ def run_trufflehog(repos, username, verify, only_verified, token=None):
         except subprocess.CalledProcessError as e:
             print(f"Error running trufflehog on {repo_url}: {e}")
 
-
 def delete_docker_image(image_name):
     """Delete a Docker image using the Docker CLI."""
     try:
         print(f"Deleting image: {image_name}")
-        subprocess.run(
-            ["docker", "rmi", image_name],
-            check=True
-        )
+        subprocess.run(["docker", "rmi", image_name], check=True)
         print(f"Image {image_name} deleted successfully!")
     except subprocess.CalledProcessError as e:
-        print(f"Failed to delete image {image_name}: {e}")
-        raise
+        if "No such image" in str(e):
+            print(f"Image {image_name} does not exist. Skipping deletion.")
+        else:
+            print(f"Failed to delete image {image_name}: {e}")
+            raise
 
 def extract_docker_image_layers(image_name, output_directory):
     """Extract Docker image layers into a specified directory and untar the layers."""
@@ -400,6 +398,156 @@ def ghcr_main(org_name, token, user=None, repo=None, user_list_file=None, verify
             image_name = f"ghcr.io/{user}/{repo_name}:latest"
             process_image(image_name)
 
+def docker_login_hub(token):
+    """Authenticate with Docker Hub using the provided token."""
+    try:
+        print("Authenticating with Docker Hub...")
+        subprocess.run(
+            ["docker", "login", "--username", "oauth2", "--password-stdin"],
+            input=token.encode(),  # Pass the token securely via stdin
+            check=True
+        )
+        print("Authentication succeeded!")
+    except subprocess.CalledProcessError as e:
+        print(f"Failed to authenticate with Docker Hub: {e}")
+        raise
+
+def get_docker_hub_images(org_name):
+    """Fetch all repositories for a given organization from Docker Hub."""
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    
+    url = f"https://hub.docker.com/v2/repositories/{org_name}/"
+    repositories = []
+
+    try:
+        while url:
+            response = requests.get(url, verify=False)  # Skip SSL verification
+            if response.status_code != 200:
+                print(f"Failed to fetch Docker Hub images for {org_name}: {response.status_code}, {response.text}")
+                break
+
+            data = response.json()
+            repositories.extend([repo["name"] for repo in data.get("results", [])])
+
+            # Handle pagination
+            url = data.get("next")
+    except Exception as e:
+        print(f"Error fetching Docker Hub repositories: {e}")
+
+    print(f"Found {len(repositories)} repositories for Docker Hub organization {org_name}.")
+    return repositories
+
+def get_docker_hub_tags(org_name, repo_name):
+    """Fetch all tags for a given repository in Docker Hub."""
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    
+    url = f"https://hub.docker.com/v2/repositories/{org_name}/{repo_name}/tags/"
+    tags = []
+
+    try:
+        while url:
+            response = requests.get(url, verify=False)  # Skip SSL verification
+            if response.status_code != 200:
+                print(f"Failed to fetch tags for {repo_name}: {response.status_code}, {response.text}")
+                break
+
+            data = response.json()
+            tags.extend([tag["name"] for tag in data.get("results", [])])
+
+            # Handle pagination
+            url = data.get("next")
+    except Exception as e:
+        print(f"Error fetching Docker Hub tags for {repo_name}: {e}")
+
+    print(f"Found {len(tags)} tags for repository {repo_name}.")
+    return tags
+
+def convert_schema1_to_schema2(image_name):
+    """Convert a Docker image from Schema 1 to Schema 2 format using skopeo."""
+    try:
+        # Define the source and target image formats
+        oci_image = f"oci:{image_name.replace('/', '_')}:latest"
+        docker_image = f"docker-daemon:{image_name}"  # Local Docker reference
+
+        print(f"Converting {image_name} from Schema 1 to Schema 2 using skopeo...")
+
+        # Pull the image to OCI format
+        subprocess.run(
+            ["skopeo", "copy", f"docker://{image_name}", oci_image],
+            check=True
+        )
+
+        # Load the OCI image into Docker
+        print(f"Loading the converted image into Docker: {docker_image}")
+        subprocess.run(
+            ["skopeo", "copy", oci_image, docker_image],
+            check=True
+        )
+
+        print(f"Successfully converted {image_name} to Schema 2 format.")
+        return image_name  # Return the standard Docker reference
+    except subprocess.CalledProcessError as e:
+        print(f"Error during conversion of {image_name}: {e}")
+        return None
+
+def docker_pull_image(image_name, token=None, v1_convert=False):
+    """Pull a Docker image using the Docker CLI, with fallback for Schema 1 images."""
+    try:
+        print(f"Pulling image: {image_name}")
+        subprocess.run(["docker", "pull", image_name], check=True)
+        print(f"Image {image_name} pulled successfully!")
+        return image_name  # Return the image name if successfully pulled
+    except subprocess.CalledProcessError as e:
+        error_message = str(e)
+        if "DEPRECATION NOTICE" in error_message or "non-zero exit status" in error_message:
+            if v1_convert:
+                print("Deprecated Schema 1 format detected or pull failed. Attempting manual conversion using skopeo...")
+                converted_image = convert_schema1_to_schema2(image_name)
+                if converted_image:
+                    print(f"Image {converted_image} converted successfully.")
+                    return converted_image
+                else:
+                    print(f"Failed to convert image {image_name} to Schema 2.")
+                    return None
+            else:
+                print(f"Pull failed for {image_name}. Try using --v1 for manual conversion.")
+        else:
+            print(f"Failed to pull {image_name}: {e}")
+            raise
+
+def docker_main(org_name, verify=False, retain_image=False, extract_layers=None, v1_convert=False, token=None):
+    """Main function for the 'docker' command."""
+    if token:
+        docker_login_hub(token)
+
+    print(f"Fetching Docker Hub repositories for organization: {org_name}")
+    repositories = get_docker_hub_images(org_name)
+
+    for repo_name in repositories:
+        print(f"Processing repository: {repo_name}")
+        tags = get_docker_hub_tags(org_name, repo_name)
+
+        for tag in tags:
+            image_name = f"{org_name}/{repo_name}:{tag}"
+            try:
+                converted_image = docker_pull_image(image_name, token=token, v1_convert=v1_convert)
+
+                if not converted_image:
+                    print(f"Skipping image {image_name} due to conversion failure.")
+                    continue
+
+                if extract_layers:
+                    extract_docker_image_layers(converted_image, extract_layers)
+                else:
+                    scan_docker_image(converted_image, verify, use_dockle=v1_convert)
+
+                if not retain_image:
+                    delete_docker_image(converted_image)
+            except Exception as e:
+                print(f"Error processing image {image_name}: {e}")
+
 def github_main(org_name, token, max_repo_size_mb, user=None, repo=None, user_list_file=None, get_users_file=None, clone=False, trufflehog=False, verify=False, only_verified=False, no_fork=False, time_limit=None, scan_org=None):
     """Main function for the 'github' command."""
     max_repo_size_kb = max_repo_size_mb * 1000 if max_repo_size_mb is not None else None  # Convert MB to KB or leave None
@@ -430,7 +578,6 @@ def github_main(org_name, token, max_repo_size_mb, user=None, repo=None, user_li
         run_trufflehog(repo_urls, scan_org, verify, only_verified, token)  # Pass token here
         return
 
-
     # Process user list or organization
     if user_list_file:
         with open(user_list_file, 'r') as f:
@@ -455,8 +602,8 @@ def github_main(org_name, token, max_repo_size_mb, user=None, repo=None, user_li
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GitHub repository, container, and postman scanning utility.")
     parser.add_argument(
-        "command", choices=["github", "ghcr", "postman"],
-        help="Command to run ('github', 'ghcr', or 'postman')"
+        "command", choices=["github", "ghcr", "postman", "docker"],
+        help="Command to run ('github', 'ghcr', 'postman', or 'docker')"
     )
     parser.add_argument("--github-org", help="Name of the GitHub organization (required if --user-list is not provided)")
     parser.add_argument("--max-repo-size", type=int, help="Maximum repository size in MB (no limit if omitted)")
@@ -475,6 +622,7 @@ if __name__ == "__main__":
     parser.add_argument("--extract-layers", help="Directory to extract Docker image layers")
     parser.add_argument("--scan-org", help="Scan all repositories for the specified GitHub organization")
     parser.add_argument("--search", help="Search query for Postman workspaces")
+    parser.add_argument("--v1", action="store_true", help="Convert Docker images using deprecated Schema 1 format to Schema 2 for scanning")
 
     args = parser.parse_args()
 
@@ -486,8 +634,11 @@ if __name__ == "__main__":
         if not (args.github_org or args.user_list or args.user or args.repo):
             parser.error("Either --github-org, --user, or --user-list must be specified for 'ghcr' command.")
         ghcr_main(args.github_org, args.token, args.user, args.repo, args.user_list, args.verify, args.retain_image, args.extract_layers)
-
     if args.command == "postman":
         if not args.token:
             parser.error("--token is required for 'postman'")
         postman_main(args.token, args.search, args.verify)
+    if args.command == "docker":
+        if not args.scan_org:
+            parser.error("--scan-org is required for 'docker'")
+        docker_main(args.scan_org, args.verify, args.retain_image, args.extract_layers, v1_convert=args.v1)
