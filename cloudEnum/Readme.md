@@ -44,7 +44,7 @@ CloudEnum provides two primary modes of operation:
 
 ```
 # Clone the repository
-git clone https://github.com/yourusername/cloudEnum.git
+git clone https://github.com/fr4nk3nst1ner/cloudEnum.git
 
 # Change to the directory
 cd cloudEnum
@@ -139,7 +139,7 @@ cloudEnum unauth -platform azure -action aks -subscription-id my-subscription
 ```
 MIT License
 
-Copyright (c) 2024 Your Name
+Copyright (c) 2024 Jonathan Stines
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
