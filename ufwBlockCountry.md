@@ -38,7 +38,7 @@ IPSET_NAME="us_ips"
 US_IP_RANGES_FILE="/home/username/geoIpBlock/us_ip_ranges.txt"
 
 # Create an ipset if it doesn't exist
-sudo ipset create "$IPSET_NAME" hash:net -exist
+sudo ipset create "$IPSET_NAME" hash:net hashsize 262144 maxelem 524288  
 
 # Flush previous entries 
 sudo ipset flush "$IPSET_NAME" 2>/dev/null || sudo ipset create "$IPSET_NAME" hash:net
