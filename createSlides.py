@@ -11,11 +11,7 @@ import pickle
 import json
 import sys
 import uuid
-
-"""
-Script for creating slides in both html as well as google slides. 
-If you use google slides, need to create credentials.json as a desktop app and store in same dir as the script. 
-"""
+import shutil
 
 class SlideConverter:
     def __init__(self, markdown_file, output_dir):
@@ -23,6 +19,7 @@ class SlideConverter:
         self.markdown_file = markdown_file
         self.output_dir = output_dir
         self.html_output = os.path.join(output_dir, 'presentation.html')
+        self.reveal_dir = os.path.join(output_dir, 'reveal.js')
 
         self.reveal_template = '''
 <!doctype html>
@@ -31,8 +28,70 @@ class SlideConverter:
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Presentation</title>
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.min.css">
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/theme/white.min.css">
+        <link rel="stylesheet" href="reveal.js/dist/reveal.css">
+        <link rel="stylesheet" href="reveal.js/dist/theme/white.css">
+        <link rel="stylesheet" href="reveal.js/plugin/highlight/monokai.css">
+        <style>
+            .reveal {{
+                font-size: 28px;  /* Base font size */
+            }}
+            .reveal pre {{
+                box-shadow: none;
+                font-size: 0.8em;
+            }}
+            .reveal pre code {{
+                padding: 12px;
+                border-radius: 4px;
+                max-height: 400px;
+            }}
+            .reveal ul {{
+                display: block !important;
+                list-style-type: disc !important;
+            }}
+            .reveal ol {{
+                display: block !important;
+                list-style-type: decimal !important;
+            }}
+            .reveal h1 {{
+                font-size: 1.8em;  /* Reduced from 2.5em */
+                margin-bottom: 0.5em;
+            }}
+            .reveal h2 {{
+                font-size: 1.4em;  /* Reduced from 1.8em */
+                margin-bottom: 0.4em;
+            }}
+            .reveal li {{
+                margin: 0.3em 0;  /* Reduced from 0.5em */
+                display: list-item !important;
+                font-size: 0.9em;  /* Slightly smaller than regular text */
+            }}
+            .reveal ul ul {{
+                list-style-type: circle !important;
+                font-size: 0.95em;  /* Slightly smaller than parent list */
+            }}
+            .reveal ul ul ul {{
+                list-style-type: square !important;
+                font-size: 0.95em;  /* Slightly smaller than parent list */
+            }}
+            .reveal .slides {{
+                text-align: left;
+            }}
+            .reveal .slides section {{
+                height: 100%;
+                padding: 20px;
+            }}
+            .reveal p {{
+                margin: 0.5em 0;
+                line-height: 1.3;
+            }}
+            .reveal a {{
+                color: #2a76dd;
+            }}
+            .reveal .slides section .markdown-section {{
+                height: 100%;
+                padding: 15px;
+            }}
+        </style>
     </head>
     <body>
         <div class="reveal">
@@ -40,36 +99,134 @@ class SlideConverter:
                 {slides}
             </div>
         </div>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.js"></script>
+        <script src="reveal.js/dist/reveal.js"></script>
+        <script src="reveal.js/plugin/markdown/markdown.js"></script>
+        <script src="reveal.js/plugin/highlight/highlight.js"></script>
+        <script src="reveal.js/plugin/notes/notes.js"></script>
+        <script src="reveal.js/plugin/zoom/zoom.js"></script>
         <script>
-            Reveal.initialize();
+            Reveal.initialize({{
+                plugins: [ RevealMarkdown, RevealHighlight, RevealNotes, RevealZoom ],
+                hash: true,
+                slideNumber: true,
+                width: 1280,
+                height: 720,
+                margin: 0.04,
+                highlight: {{
+                    highlightOnLoad: true,
+                    escapeHTML: false
+                }},
+                markdown: {{
+                    smartypants: true,
+                    breaks: true,
+                    gfm: true
+                }}
+            }});
         </script>
     </body>
 </html>
 '''
 
+    def setup_reveal_js(self):
+        """Set up Reveal.js in the output directory"""
+        # Create package.json
+        package_json = {
+            "name": "presentation",
+            "version": "1.0.0",
+            "description": "Presentation using Reveal.js",
+            "dependencies": {
+                "reveal.js": "^4.3.1"
+            },
+            "type": "module"
+        }
+        
+        with open(os.path.join(self.output_dir, 'package.json'), 'w') as f:
+            json.dump(package_json, f, indent=2)
+
+        # Run npm install
+        os.system(f'cd {self.output_dir} && npm install')
+
+        # Copy reveal.js from node_modules to output directory
+        node_modules_reveal = os.path.join(self.output_dir, 'node_modules', 'reveal.js')
+        if os.path.exists(self.reveal_dir):
+            shutil.rmtree(self.reveal_dir)
+        shutil.copytree(node_modules_reveal, self.reveal_dir)
+
     def markdown_to_reveal(self):
         """Convert markdown to Reveal.js HTML slides"""
-        os.makedirs(self.output_dir, exist_ok=True)
+        try:
+            print("\nDebug: Starting markdown conversion...")
+            os.makedirs(self.output_dir, exist_ok=True)
 
-        with open(self.markdown_file, 'r') as f:
-            content = f.read()
+            # Set up Reveal.js
+            print("Debug: Setting up Reveal.js...")
+            self.setup_reveal_js()
 
-        slides = content.split('---')
-        
-        html_slides = []
-        for slide in slides:
-            if slide.strip():
-                slide_html = markdown.markdown(slide.strip())
-                html_slides.append(f'<section>{slide_html}</section>')
+            # Read and process markdown content
+            print(f"Debug: Reading markdown file: {self.markdown_file}")
+            with open(self.markdown_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                print(f"Debug: Content length: {len(content)} characters")
+                if not content.strip():
+                    raise ValueError("Markdown file is empty")
 
-        all_slides = '\n'.join(html_slides)
-        final_html = self.reveal_template.format(slides=all_slides)
-        
-        with open(self.html_output, 'w') as f:
-            f.write(final_html)
-        
-        return self.html_output
+            # Split into slides and process each one
+            print("Debug: Splitting content into slides...")
+            slides = content.split('---')
+            print(f"Debug: Found {len(slides)} slide sections")
+            
+            if not slides:
+                raise ValueError("No slides found in markdown file")
+            
+            html_slides = []
+            for i, slide in enumerate(slides, 1):
+                if slide.strip():
+                    # Keep the markdown as is, let Reveal.js handle the conversion
+                    slide_content = slide.strip()
+                    # Ensure proper indentation and newlines for markdown content
+                    slide_content = '\n'.join(line.strip() for line in slide_content.split('\n'))
+                    slide_html = f'''<section data-markdown>
+    <textarea data-template>
+{slide_content}
+    </textarea>
+</section>'''
+                    html_slides.append(slide_html)
+                    print(f"Debug: Processed slide {i}, content length: {len(slide_content)}")
+
+            if not html_slides:
+                raise ValueError("No valid slides generated")
+
+            # Join all slides and create final HTML
+            print("Debug: Creating final HTML...")
+            all_slides = '\n'.join(html_slides)
+            print(f"Debug: Total slides HTML length: {len(all_slides)}")
+            
+            final_html = self.reveal_template.format(slides=all_slides)
+            print(f"Debug: Final HTML length: {len(final_html)}")
+            
+            # Write the HTML file
+            print(f"Debug: Writing to file: {self.html_output}")
+            with open(self.html_output, 'w', encoding='utf-8') as f:
+                f.write(final_html)
+                f.flush()
+                os.fsync(f.fileno())  # Ensure content is written to disk
+            
+            # Verify the file was written
+            if os.path.exists(self.html_output):
+                file_size = os.path.getsize(self.html_output)
+                print(f"Debug: File written successfully. Size: {file_size} bytes")
+            else:
+                print("Debug: Error - File does not exist after writing!")
+            
+            return self.html_output
+
+        except Exception as e:
+            print(f"Error generating HTML presentation: {str(e)}")
+            print("Debug information:")
+            print(f"- Markdown file: {self.markdown_file}")
+            print(f"- Output directory: {self.output_dir}")
+            print(f"- HTML output path: {self.html_output}")
+            raise
 
     def check_credentials_file(self):
         """Check if credentials.json exists and is valid"""
