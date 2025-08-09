@@ -6,7 +6,7 @@ source: https://medium.com/@Null0xFF/setting-up-the-bladerf-2-0-micro-xa4-with-g
 
 ```
 sudo apt-get update
-sudo apt install git cmake build-essential libusb-1.0-0-dev libusb-1.0-0 build-essential cmake
+sudo apt install git cmake build-essential libusb-1.0-0-dev libusb-1.0-0 build-essential cmake libncurses-dev libcurl4-openssl-dev
 libncurses5-dev libtecla1 libtecla1-dev pkg-config
 ```
 
