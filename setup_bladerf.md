@@ -133,7 +133,7 @@ sudo ldconfig
 
 ```
 sudo apt update
-sudo apt install -y git cmake build-essential libusb-1.0-0-dev \
+sudo apt install -y git cmake build-essential software-properties-common libusb-1.0-0-dev \
 libsqlite3-dev pkg-config libwxgtk3.2-dev libsoapysdr-dev \
 libi2c-dev libboost-all-dev doxygen libcurl4-openssl-dev
 ```
