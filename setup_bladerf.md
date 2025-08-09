@@ -126,3 +126,57 @@ sudo ldconfig
 
 `bladeRF-cli -i -l path/to/fpgafile.rbf`
 
+
+# LimeSDR Setup on RPI4
+
+- Step 1: Install deps 
+
+```
+sudo apt update
+sudo apt install -y git cmake build-essential libusb-1.0-0-dev \
+libsqlite3-dev pkg-config libwxgtk3.2-dev libsoapysdr-dev \
+libi2c-dev libboost-all-dev doxygen libcurl4-openssl-dev
+```
+
+- Step 2: Install LimeSuite (official LimeSDR software)
+
+```
+git clone https://github.com/myriadrf/LimeSuite.git
+cd LimeSuite/
+mkdir -p build
+cd build
+cmake ..
+make -j$(nproc)
+sudo make install
+sudo ldconfig
+```
+
+- Step 3: Find device
+
+```
+LimeUtil --find
+```
+
+- Step 4: (Optional) Install SoapySDR
+
+```
+git clone https://github.com/pothosware/SoapySDR.git
+cd SoapySDR
+mkdir build && cd build
+cmake ..
+make -j$(nproc)
+sudo make install
+sudo ldconfig
+
+SoapySDRUtil --probe="driver=lime"
+```
+
+- Step 5: Fix udev Permissions (Optional but Recommended)
+
+```
+sudo echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="1d50", ATTR{idProduct}=="6108", MODE="0666"' >> /etc/udev/rules.d/64-limesdr.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+
