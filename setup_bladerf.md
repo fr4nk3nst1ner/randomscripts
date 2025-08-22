@@ -179,4 +179,17 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
 
+# Recover broken LimeSDR firmware and/or gateware - [limesdr usb fx3](https://wiki.myriadrf.org/LimeSDR-USB)
+
+- Following [this](https://wiki.myriadrf.org/LimeSDR-USB_Board_Programming) and [this](https://wiki.myriadrf.org/LimeSDR_Firmware_Management) article
+- download limesuite and limesuite gui (you'll need gui for this)
+- clone [this](https://github.com/myriadrf/LimeSDR-USB_FX3?tab=readme-ov-file) and grab the fw from the Debug directory
+- connect to the limesdr in dfu mode
+- click Modules menu and Program and select fx3 RAM and program
+- once it reboots, connect to the limesdr again and click program, set to automatic
+
+
+
+
+
 
