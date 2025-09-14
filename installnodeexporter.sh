@@ -1,103 +1,102 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# install-node-exporter.sh
+# Installs Prometheus node_exporter on x86_64 Linux with systemd.
 
-groupadd --system prometheus
-useradd -s /sbin/nologin --system -g prometheus prometheus
-mkdir /var/lib/prometheus
-for i in rules rules.d files_sd; do mkdir -p /etc/prometheus/${i}; done
-apt update
-apt-get -y install wget curl
-mkdir -p /tmp/prometheus && cd /tmp/prometheus
-curl -s https://api.github.com/repos/prometheus/prometheus/releases/latest|grep browser_download_url|grep linux-amd64|cut -d '"' -f 4|wget -qi -
-tar xvf prometheus-2.43.0.linux-amd64.tar.gz
-cd prometheus-2.43.0.linux-amd64/
-mv prometheus promtool /usr/local/bin/
-mv prometheus.yml  /etc/prometheus/prometheus.yml
-mv consoles/ console_libraries/ /etc/prometheus/
-cd ~/
-rm -rf /tmp/prometheus
-cat /etc/prometheus/prometheus.yml
-tee /etc/systemd/system/prometheus.service<<EOF
+set -euo pipefail
+
+#--- Config (you can pin a version by uncommenting the next line) -------------
+# PINNED_VERSION="1.8.2"   # example; if set, we install this instead of "latest"
+SERVICE_USER="nodeexp"
+SERVICE_GROUP="$SERVICE_USER"
+LISTEN_ADDR=":9100"
+
+#--- Root check ----------------------------------------------------------------
+if [[ $EUID -ne 0 ]]; then
+  echo "Please run as root (e.g. sudo bash $0)"; exit 1
+fi
+
+#--- Arch check ----------------------------------------------------------------
+arch="$(uname -m)"
+case "$arch" in
+  x86_64) PLATFORM="linux-amd64" ;;
+  amd64)  PLATFORM="linux-amd64" ;;
+  *)
+    echo "Unsupported architecture: $arch (this script is for x86_64 only)"; exit 1;;
+esac
+
+#--- Create system user/group --------------------------------------------------
+if ! getent group "$SERVICE_GROUP" >/dev/null; then
+  groupadd -r "$SERVICE_GROUP"
+fi
+if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
+  useradd -r -s /usr/sbin/nologin -g "$SERVICE_GROUP" "$SERVICE_USER"
+fi
+
+#--- Download latest (or pinned) tarball --------------------------------------
+workdir="$(mktemp -d)"; cd "$workdir"
+
+if [[ -n "${PINNED_VERSION:-}" ]]; then
+  TAG="v${PINNED_VERSION#v}"  # ensure leading v
+  TAR_URL="https://github.com/prometheus/node_exporter/releases/download/${TAG}/node_exporter-${TAG#v}.${PLATFORM}.tar.gz"
+  SUMS_URL="https://github.com/prometheus/node_exporter/releases/download/${TAG}/sha256sums.txt"
+else
+  # Grab URLs from GitHub API (latest)
+  api="$(curl -fsSL https://api.github.com/repos/prometheus/node_exporter/releases/latest)"
+  TAR_URL="$(printf '%s\n' "$api" | grep -Eo "https://[^\" ]*node_exporter-[0-9.]+\.${PLATFORM}\.tar\.gz" | head -n1)"
+  SUMS_URL="$(printf '%s\n' "$api" | grep -Eo "https://[^\" ]*sha256sums.txt" | head -n1)"
+fi
+
+echo "Downloading: $TAR_URL"
+curl -fsSL -o ne.tgz "$TAR_URL"
+
+# Optional checksum verification
+if command -v sha256sum >/dev/null 2>&1 && [[ -n "${SUMS_URL:-}" ]]; then
+  echo "Verifying checksum..."
+  curl -fsSL -o sums.txt "$SUMS_URL"
+  # Keep only matching line for our tarball
+  fname="$(basename "$TAR_URL")"
+  grep "  $fname\$" sums.txt > sums.filtered || { echo "Checksum entry not found for $fname"; exit 1; }
+  sha256sum -c sums.filtered
+fi
+
+#--- Install binary ------------------------------------------------------------
+tar -xzf ne.tgz
+binpath="$(echo node_exporter-*/node_exporter)"
+install -m 0755 -o root -g root "$binpath" /usr/local/bin/node_exporter
+
+#--- systemd unit --------------------------------------------------------------
+cat >/etc/systemd/system/node_exporter.service <<EOF
 [Unit]
-Description=Prometheus
-Documentation=https://prometheus.io/docs/introduction/overview/
+Description=Prometheus Node Exporter
 Wants=network-online.target
 After=network-online.target
 
 [Service]
+User=${SERVICE_USER}
+Group=${SERVICE_GROUP}
 Type=simple
-User=prometheus
-Group=prometheus
-ExecReload=/bin/kill -HUP $MAINPID
-ExecStart=/usr/local/bin/prometheus   --config.file=/etc/prometheus/prometheus.yml   --storage.tsdb.path=/var/lib/prometheus   --web.console.templates=/etc/prometheus/consoles   --web.console.libraries=/etc/prometheus/console_libraries   --web.listen-address=0.0.0.0:9090   --web.external-url=
-
-SyslogIdentifier=prometheus
-Restart=always
+ExecStart=/usr/local/bin/node_exporter --web.listen-address=${LISTEN_ADDR}
+Restart=on-failure
+AmbientCapabilities=
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-tee /etc/systemd/system/prometheus.service<<EOF
-[Unit]
-Description=Prometheus
-Documentation=https://prometheus.io/docs/introduction/overview/
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-Type=simple
-User=prometheus
-Group=prometheus
-ExecReload=/bin/kill -HUP $MAINPID
-ExecStart=/usr/local/bin/prometheus   --config.file=/etc/prometheus/prometheus.yml   --storage.tsdb.path=/var/lib/prometheus   --web.console.templates=/etc/prometheus/consoles   --web.console.libraries=/etc/prometheus/console_libraries   --web.listen-address=0.0.0.0:9090   --web.external-url=
-
-SyslogIdentifier=prometheus
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-for i in rules rules.d files_sd; do chown -R prometheus:prometheus /etc/prometheus/${i}; done
-for i in rules rules.d files_sd; do chmod -R 775 /etc/prometheus/${i}; done
-chown -R prometheus:prometheus /var/lib/prometheus/
+#--- Enable & start ------------------------------------------------------------
 systemctl daemon-reload
-systemctl start prometheus
-systemctl enable prometheus
-systemctl status prometheus
-curl -s https://api.github.com/repos/prometheus/node_exporter/releases/latest| grep browser_download_url|grep linux-amd64|cut -d '"' -f 4|wget -qi -
-tar xzvf node_exporter-1.5.0.linux-amd64.tar.gz
-cd node_exporter-1.5.0.linux-amd64/
-cp node_exporter /usr/local/bin/
-tee /etc/systemd/system/node_exporter.service <<EOF
-[Unit]
-Description=Node Exporter
-Wants=network-online.target
-After=network-online.target
+systemctl enable --now node_exporter
 
-[Service]
-User=prometheus
-ExecStart=/usr/local/bin/node_exporter
-
-[Install]
-WantedBy=default.target
-EOF
-
-tee /etc/systemd/system/node_exporter.service <<EOF
-[Unit]
-Description=Node Exporter
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-User=prometheus
-ExecStart=/usr/local/bin/node_exporter
-
-[Install]
-WantedBy=default.target
-EOF
-
-systemctl daemon-reload
-systemctl start node_exporter
-systemctl enable node_exporter
-systemctl status node_exporter
+#--- Show status & a quick check ----------------------------------------------
+systemctl --no-pager --full status node_exporter || true
+echo
+echo "Try:   curl -s http://localhost${LISTEN_ADDR}/metrics | head"
+echo "Done."
